@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiFly Battery Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sifly: {
+              lime: '#d4e831',
+              'lime-dark': '#b8cc2a',
+              ink: '#0f1419',
+              slate: '#1a2332',
+              mist: '#f4f6f8',
+              ocean: '#1e4d7b',
+            },
+          },
+          fontFamily: {
+            sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+          },
+          boxShadow: {
+            card: '0 4px 24px -4px rgba(15, 20, 25, 0.08)',
+            glow: '0 0 40px -8px rgba(212, 232, 49, 0.35)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    @keyframes pulse-ring {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.15); }
+    }
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes spin-slow {
+      to { transform: rotate(360deg); }
+    }
+    .animate-fade-up { animation: fade-up 0.45s ease-out both; }
+    .charging-dot { animation: pulse-ring 1.6s ease-in-out infinite; }
+    .progress-fill { transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+    .modal-backdrop { backdrop-filter: blur(6px); }
+    .battery-grid > * { animation: fade-up 0.5s ease-out both; }
+    .battery-grid > *:nth-child(1) { animation-delay: 0.05s; }
+    .battery-grid > *:nth-child(2) { animation-delay: 0.1s; }
+    .battery-grid > *:nth-child(3) { animation-delay: 0.15s; }
+    .battery-grid > *:nth-child(4) { animation-delay: 0.2s; }
+    .battery-grid > *:nth-child(5) { animation-delay: 0.25s; }
+    .battery-grid > *:nth-child(6) { animation-delay: 0.3s; }
+    #debug-content pre { white-space: pre-wrap; word-break: break-word; }
+    body.debug-open { padding-bottom: 18rem; }
+    body.debug-open.debug-minimized { padding-bottom: 2.75rem; }
+  </style>
+</head>
+<body class="min-h-screen bg-sifly-mist font-sans text-sifly-ink antialiased">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 border-b border-black/5 bg-white/90 backdrop-blur-md">
+    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sifly-ink text-sm font-bold italic tracking-tight text-sifly-lime shadow-glow">SF</div>
+        <div>
+          <p class="text-lg font-bold italic tracking-tight">SiFly</p>
+          <p class="text-xs text-gray-500">Battery Monitor</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="debug-toggle-btn" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          Debug
+        </button>
+        <div id="header-actions" class="hidden items-center gap-3">
+        <button id="refresh-btn" type="button" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:border-sifly-lime hover:text-sifly-ink">
+          <svg id="refresh-icon" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+        <button id="logout-btn" type="button" class="rounded-lg bg-sifly-ink px-3 py-2 text-sm font-medium text-white transition hover:bg-sifly-slate">Logout</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+
+    <!-- Login -->
+    <section id="login-section" class="mx-auto max-w-md animate-fade-up">
+      <div class="overflow-hidden rounded-2xl bg-white shadow-card">
+        <div class="bg-sifly-ink px-6 py-8 text-white">
+          <h1 class="text-2xl font-bold">Sign in</h1>
+          <p class="mt-1 text-sm text-gray-300">Connect to MySiFly and view your PowerCell status.</p>
+        </div>
+        <form id="login-form" class="space-y-4 p-6">
+          <div>
+            <label for="username" class="mb-1 block text-sm font-medium text-gray-700">Username</label>
+            <input id="username" name="username" type="email" required autocomplete="username"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-sifly-lime focus:ring-2 focus:ring-sifly-lime/30" placeholder="you@example.com" />
+          </div>
+          <div>
+            <label for="password" class="mb-1 block text-sm font-medium text-gray-700">Password</label>
+            <div class="relative">
+              <input id="password" name="password" type="password" required autocomplete="current-password"
+                class="w-full rounded-lg border border-gray-200 px-3 py-2.5 pr-11 text-sm outline-none transition focus:border-sifly-lime focus:ring-2 focus:ring-sifly-lime/30" placeholder="••••••••" />
+              <button id="toggle-password" type="button" aria-label="Show password" aria-pressed="false"
+                class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">
+                <svg id="eye-icon" class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                </svg>
+                <svg id="eye-off-icon" class="hidden h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+              <input id="remember-credentials" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-sifly-ink focus:ring-sifly-lime" />
+              Remember username &amp; password
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+              <input id="remember-token" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-sifly-ink focus:ring-sifly-lime" checked />
+              Remember session token
+            </label>
+          </div>
+          <p id="login-error" class="hidden rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"></p>
+          <button id="login-btn" type="submit"
+            class="flex w-full items-center justify-center gap-2 rounded-lg bg-sifly-lime px-4 py-3 text-sm font-semibold text-sifly-ink transition hover:bg-sifly-lime-dark disabled:cursor-not-allowed disabled:opacity-60">
+            <span id="login-btn-text">Sign in</span>
+            <svg id="login-spinner" class="hidden h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          </button>
+          <label class="flex cursor-pointer items-center justify-center gap-2 text-xs text-gray-500">
+            <input id="demo-mode" type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300" />
+            Demo mode (offline sample data)
+          </label>
+          <label class="flex cursor-pointer items-center justify-center gap-2 text-xs text-gray-500">
+            <input id="debug-mode" type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300" />
+            Enable debug mode (log API requests &amp; responses)
+          </label>
+        </form>
+      </div>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="dashboard-section" class="hidden">
+      <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 class="text-2xl font-bold tracking-tight">Your batteries</h2>
+          <p id="dashboard-subtitle" class="mt-1 text-sm text-gray-500">Live status from MySiFly</p>
+        </div>
+        <div id="summary-stats" class="flex flex-wrap gap-3"></div>
+      </div>
+
+      <div id="loading-state" class="hidden rounded-2xl bg-white p-12 text-center shadow-card">
+        <svg class="mx-auto h-8 w-8 animate-spin text-sifly-ink" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        <p class="mt-4 text-sm text-gray-500">Loading battery data…</p>
+      </div>
+
+      <div id="empty-state" class="hidden rounded-2xl bg-white p-12 text-center shadow-card">
+        <p class="text-gray-500">No batteries found on your account.</p>
+        <p id="empty-state-debug" class="mt-2 hidden text-xs text-gray-400"></p>
+      </div>
+
+      <div id="battery-grid" class="battery-grid grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+    </section>
+  </main>
+
+  <!-- Details modal -->
+  <div id="details-modal" class="modal-backdrop fixed inset-0 z-50 hidden items-end justify-center bg-black/40 p-4 sm:items-center" aria-hidden="true">
+    <div class="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl" role="dialog" aria-labelledby="modal-title">
+      <div class="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+        <div>
+          <h3 id="modal-title" class="text-lg font-bold">Battery details</h3>
+          <p id="modal-subtitle" class="text-sm text-gray-500"></p>
+        </div>
+        <button id="modal-close" type="button" class="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="modal-body" class="max-h-[calc(90vh-4rem)] overflow-y-auto px-5 py-6"></div>
+    </div>
+  </div>
+
+  <!-- Debug panel -->
+  <div id="debug-panel" class="fixed inset-x-0 bottom-0 z-50 hidden border-t border-amber-300 shadow-2xl">
+    <div class="flex flex-wrap items-center justify-between gap-2 bg-sifly-ink px-4 py-2 text-white">
+      <div class="flex items-center gap-2 text-sm font-semibold">
+        <span class="inline-block h-2 w-2 rounded-full bg-amber-400"></span>
+        API Debug
+        <span id="debug-count" class="rounded bg-white/10 px-2 py-0.5 text-xs font-normal text-gray-300">0 entries</span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="debug-test-proxy" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Test proxy auth</button>
+        <button id="debug-test-dev" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Test DEV request</button>
+        <button id="debug-test-auth" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Re-test login</button>
+        <button id="debug-copy" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Copy log</button>
+        <button id="debug-clear" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Clear</button>
+        <button id="debug-minimize" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Minimize</button>
+        <button id="debug-close" type="button" class="rounded bg-white/10 px-2.5 py-1 text-xs font-medium hover:bg-white/20">Close</button>
+      </div>
+    </div>
+    <div id="debug-meta" class="border-b border-amber-200/30 bg-amber-50 px-4 py-2 font-mono text-xs text-amber-900"></div>
+    <div id="debug-content" class="max-h-72 overflow-y-auto bg-gray-950 p-4 font-mono text-xs leading-relaxed text-emerald-300"></div>
+  </div>
+
+  <script>
+    const API_VERSION = '001.000.000.015';
+    const STORAGE = {
+      username: 'sifly_username',
+      password: 'sifly_password',
+      token: 'sifly_token',
+      rememberCredentials: 'sifly_remember_credentials',
+      rememberToken: 'sifly_remember_token',
+      debugMode: 'sifly_debug_mode',
+    };
+
+    const state = {
+      token: null,
+      demo: false,
+      batteries: [],
+      refreshTimer: null,
+      debugEnabled: false,
+      debugMinimized: false,
+      debugLog: [],
+      lastDeviceCount: 0,
+    };
+
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    // ─── Debug ───────────────────────────────────────────────────
+
+    function isDebugEnabled() {
+      return state.debugEnabled || localStorage.getItem(STORAGE.debugMode) === 'true';
+    }
+
+    function setDebugEnabled(enabled) {
+      state.debugEnabled = enabled;
+      localStorage.setItem(STORAGE.debugMode, enabled ? 'true' : 'false');
+      $('#debug-mode').checked = enabled;
+      if (enabled) {
+        showDebugPanel();
+        renderDebugMeta();
+      } else {
+        hideDebugPanel();
+      }
+    }
+
+    function showDebugPanel() {
+      $('#debug-panel').classList.remove('hidden');
+      document.body.classList.add('debug-open');
+      if (state.debugMinimized) document.body.classList.add('debug-minimized');
+    }
+
+    function hideDebugPanel() {
+      $('#debug-panel').classList.add('hidden');
+      document.body.classList.remove('debug-open', 'debug-minimized');
+    }
+
+    function maskToken(token) {
+      if (!token) return '(none)';
+      if (token.length < 24) return '***';
+      return `${token.slice(0, 16)}…${token.slice(-12)}`;
+    }
+
+    function summarizeWebSrvCmd(data) {
+      const ws = data?.WebSrvCmd;
+      const cmd = ws?.Cmd;
+      const dbReq = cmd?.DBRequest?.[0];
+      const object = dbReq?.Object;
+      const result = dbReq?.ResultData || {};
+      const counts = {};
+      for (const key of ['Device', 'BattData', 'BattState']) {
+        if (Array.isArray(result[key])) counts[key] = result[key].length;
+      }
+      return {
+        res: ws?.Res ?? null,
+        hasErr: ws?.HasErr ?? null,
+        cmdRes: cmd?.Res ?? null,
+        cmdHasErr: cmd?.HasErr ?? null,
+        success: cmd?.Success ?? null,
+        errorText: cmd?.ErrorText || null,
+        object,
+        counts,
+        ip: ws?.IPAddress || cmd?.IPAddress || null,
+      };
+    }
+
+    function debugAdd(entry) {
+      if (!isDebugEnabled()) return;
+      state.debugLog.unshift({
+        id: Date.now() + Math.random(),
+        time: new Date().toISOString(),
+        ...entry,
+      });
+      if (state.debugLog.length > 50) state.debugLog.length = 50;
+      renderDebugLog();
+    }
+
+    function renderDebugMeta() {
+      const payload = state.token && state.token !== 'demo' ? decodeJwtPayload(state.token) : null;
+      const user = payload?.userData;
+      const exp = payload?.exp ? new Date(payload.exp * 1000).toLocaleString('en-GB') : '—';
+      const expired = state.token && state.token !== 'demo' ? isTokenExpired(state.token) : false;
+      $('#debug-meta').textContent = [
+        `Token: ${maskToken(state.token)}`,
+        `Expired: ${expired ? 'yes' : 'no'} (exp ${exp})`,
+        user ? `User: ${user.FirstName || ''} ${user.ThirdName || ''} · Role ${user.RoleStrID || user.RoleID || '?'}` : 'User: —',
+        `Proxy: ${getProxyUrl('api')}`,
+        `Last devices: ${state.lastDeviceCount}`,
+      ].join(' · ');
+    }
+
+    function renderDebugLog() {
+      $('#debug-count').textContent = `${state.debugLog.length} entries`;
+      if (!state.debugLog.length) {
+        $('#debug-content').innerHTML = '<p class="text-gray-500">No debug entries yet. Sign in or click "Test DEV request".</p>';
+        return;
+      }
+      $('#debug-content').innerHTML = state.debugLog.map((entry) => {
+        const statusClass = entry.error ? 'text-red-400' : (entry.status >= 400 ? 'text-red-400' : 'text-emerald-300');
+        const summary = entry.summary ? `<div class="mt-1 text-amber-200">${escapeHtml(JSON.stringify(entry.summary))}</div>` : '';
+        const proxy = entry.proxy ? `<div class="mt-1 text-violet-300">PROXY: authReceived=${escapeHtml(String(entry.proxy.authReceived))} · source=${escapeHtml(String(entry.proxy.authSource || '—'))}</div>` : '';
+        const req = entry.request ? `<pre class="mt-2 text-gray-400">REQUEST:\n${escapeHtml(JSON.stringify(entry.request, null, 2))}</pre>` : '';
+        const res = entry.response !== undefined
+          ? `<pre class="mt-1 text-sky-300">RESPONSE:\n${escapeHtml(typeof entry.response === 'string' ? entry.response : JSON.stringify(entry.response, null, 2))}</pre>`
+          : '';
+        const err = entry.error ? `<div class="mt-1 text-red-400">ERROR: ${escapeHtml(entry.error)}</div>` : '';
+        return `
+          <div class="mb-4 border-b border-gray-800 pb-4">
+            <div class="${statusClass}">[${entry.time}] ${escapeHtml(entry.label)} · HTTP ${entry.status ?? '—'} · ${entry.durationMs ?? 0}ms · Auth: ${escapeHtml(entry.auth || '(none)')}</div>
+            ${proxy}${summary}${err}${req}${res}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function copyDebugLog() {
+      const text = state.debugLog.map((e) => JSON.stringify(e, null, 2)).join('\n\n---\n\n');
+      try {
+        await navigator.clipboard.writeText(text || 'No debug entries');
+      } catch {
+        window.prompt('Copy debug log:', text);
+      }
+    }
+
+    async function debugTestProxy() {
+      if (!state.token || state.token === 'demo') {
+        debugAdd({ label: 'proxy/ping', error: 'No active token — sign in first', status: 0 });
+        return;
+      }
+      try {
+        const res = await fetch('proxy.php?endpoint=ping', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${state.token}`,
+            'X-Sifly-Authorization': `Bearer ${state.token}`,
+          },
+        });
+        const data = await res.json();
+        debugAdd({
+          label: 'proxy/ping',
+          status: res.status,
+          summary: data,
+          response: data,
+          proxy: {
+            authReceived: res.headers.get('X-Proxy-Auth-Received'),
+            authSource: res.headers.get('X-Proxy-Auth-Source'),
+          },
+        });
+      } catch (err) {
+        debugAdd({ label: 'proxy/ping', error: err.message, status: 0 });
+      }
+    }
+
+    async function debugTestDev() {
+      if (!state.token || state.token === 'demo') {
+        debugAdd({ label: 'manual/DEV', error: 'No active token — sign in first', status: 0 });
+        return;
+      }
+      try {
+        const devices = await fetchDevices(state.token);
+        const batteries = extractBatteries(devices);
+        debugAdd({
+          label: 'manual/DEV-parse',
+          status: 200,
+          summary: { totalDevices: devices.length, batteries: batteries.length, batterySnos: batteries.map((b) => b.sno) },
+        });
+        renderDebugMeta();
+      } catch (err) {
+        debugAdd({ label: 'manual/DEV-parse', error: err.message, status: 0 });
+      }
+    }
+
+    async function debugTestAuth() {
+      const username = $('#username').value.trim();
+      const password = $('#password').value;
+      if (!username || !password) {
+        debugAdd({ label: 'manual/auth', error: 'Enter username and password on login form first', status: 0 });
+        return;
+      }
+      try {
+        const result = await login(username, password);
+        debugAdd({
+          label: 'manual/auth-result',
+          status: 200,
+          summary: { hasToken: !!result?.token, token: maskToken(result?.token) },
+        });
+        if (result?.token) {
+          state.token = result.token;
+          renderDebugMeta();
+        }
+      } catch (err) {
+        debugAdd({ label: 'manual/auth-result', error: err.message, status: 0 });
+      }
+    }
+
+    // ─── API layer ───────────────────────────────────────────────
+
+    function getProxyUrl(endpoint) {
+      return `proxy.php?endpoint=${endpoint}`;
+    }
+
+    function isAuthError(message) {
+      const msg = (message || '').toLowerCase();
+      return msg.includes('invalid_token')
+        || msg.includes('unauthorized')
+        || msg.includes('authenticating user');
+    }
+
+    function decodeJwtPayload(token) {
+      try {
+        const part = token.split('.')[1];
+        if (!part) return null;
+        const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+        return JSON.parse(json);
+      } catch {
+        return null;
+      }
+    }
+
+    function isTokenExpired(token) {
+      const payload = decodeJwtPayload(token);
+      if (!payload?.exp) return false;
+      return Date.now() >= payload.exp * 1000;
+    }
+
+    function getValidStoredToken() {
+      const token = localStorage.getItem(STORAGE.token);
+      if (!token || token === 'demo') return null;
+      if (isTokenExpired(token)) {
+        localStorage.removeItem(STORAGE.token);
+        return null;
+      }
+      return token;
+    }
+
+    async function apiFetch(endpoint, body, token, label = endpoint) {
+      const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+      const authUsed = endpoint === 'api' && token ? `Bearer ${maskToken(token)}` : '(none)';
+      if (endpoint === 'api' && token) {
+        const bearer = `Bearer ${token}`;
+        headers.Authorization = bearer;
+        // Fallback for Apache/Plesk servers that strip Authorization before PHP
+        headers['X-Sifly-Authorization'] = bearer;
+      }
+
+      const started = performance.now();
+      let res, text, data = null, error = null, proxyInfo = null;
+
+      try {
+        res = await fetch(getProxyUrl(endpoint), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+        proxyInfo = {
+          authReceived: res.headers.get('X-Proxy-Auth-Received'),
+          authSource: res.headers.get('X-Proxy-Auth-Source'),
+        };
+        text = await res.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+          throw new Error('Invalid JSON response');
+        }
+        if (!res.ok) {
+          const hint = proxyInfo.authReceived === 'no'
+            ? ' Proxy did not receive Authorization header — upload .htaccess or check server config.'
+            : '';
+          throw new Error((data?.error || data?.message || text || `HTTP ${res.status}`) + hint);
+        }
+        return data;
+      } catch (err) {
+        error = err.message;
+        throw err;
+      } finally {
+        if (isDebugEnabled()) {
+          const durationMs = Math.round(performance.now() - started);
+          const summary = data?.WebSrvCmd ? summarizeWebSrvCmd(data) : null;
+          debugAdd({
+            label,
+            endpoint,
+            status: res?.status ?? 0,
+            durationMs,
+            auth: authUsed,
+            proxy: proxyInfo,
+            request: body,
+            response: data ?? text ?? null,
+            summary,
+            error,
+          });
+          renderDebugMeta();
+        }
+      }
+    }
+
+    async function login(username, password) {
+      return apiFetch('auth', { username, password, aliasPartnerGUID: null }, null, 'auth/login');
+    }
+
+    function buildDbRequest(object, requestData) {
+      return {
+        WebSrvCmd: {
+          Res: 'N/A',
+          HasErr: true,
+          ReqApiVer: API_VERSION,
+          CmdType: 'CmdDBRequest',
+          Cmd: {
+            Res: 'N/A',
+            HasErr: true,
+            ReqApiVer: API_VERSION,
+            Success: 0,
+            ErrorText: '',
+            DBRequest: [{ Method: 'GET', Object: object, RequestData: requestData }],
+          },
+        },
+      };
+    }
+
+    async function fetchDevices(token) {
+      const payload = buildDbRequest('DEV', {
+        Device: [],
+        Filter: {
+          MaxRowCount: 2000,
+          RowOffset: 0,
+          ID: null,
+          NAME: null,
+          SNo: null,
+          RegID: null,
+          ProductStateID: null,
+          ProductItemID: null,
+          ProductTypeID: null,
+          RegModeID: null,
+          IncludeReg: 1,
+          IsMySrvActive: null,
+          DevName: null,
+        },
+      });
+      const data = await apiFetch('api', payload, token, 'api/DEV');
+      const ws = data?.WebSrvCmd;
+      const cmd = ws?.Cmd;
+      const dbReq = cmd?.DBRequest?.[0];
+
+      if (ws?.HasErr || cmd?.HasErr || cmd?.Success === 0) {
+        throw new Error(cmd?.ErrorText || ws?.Res || 'DEV request returned an error');
+      }
+
+      const devices = dbReq?.ResultData?.Device;
+      if (!Array.isArray(devices)) {
+        throw new Error('DEV response has no Device array — see debug log for raw response');
+      }
+
+      state.lastDeviceCount = devices.length;
+      if (isDebugEnabled()) {
+        debugAdd({
+          label: 'parse/DEV',
+          status: 200,
+          summary: {
+            totalDevices: devices.length,
+            productTypes: [...new Set(devices.map((d) => d.ProductTypeName).filter(Boolean))],
+            batteries: extractBatteries(devices).length,
+          },
+        });
+        renderDebugMeta();
+      }
+
+      return devices;
+    }
+
+    function formatDateFilter(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function getTodayDateFilter() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      return { DateFrom: formatDateFilter(start), DateTo: formatDateFilter(end) };
+    }
+
+    function getRecentDateFilter(days = 30) {
+      const now = new Date();
+      const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      return { DateFrom: formatDateFilter(start), DateTo: formatDateFilter(end) };
+    }
+
+    function sortBattDataNewestFirst(rows) {
+      return [...rows].sort((a, b) => {
+        const ta = a?.DateUTC ? new Date(a.DateUTC).getTime() : 0;
+        const tb = b?.DateUTC ? new Date(b.DateUTC).getTime() : 0;
+        return tb - ta;
+      });
+    }
+
+    async function fetchLatestBattData(token, regId) {
+      const dates = getTodayDateFilter();
+      const payload = buildDbRequest('BATT_DATA', {
+        BattData: [],
+        Filter: {
+          MaxRowCount: 1,
+          RowOffset: 0,
+          ID: null,
+          NAME: null,
+          RegID: regId,
+          SNo: null,
+          ...dates,
+        },
+      });
+      const data = await apiFetch('api', payload, token, `api/BATT_DATA/${regId}`);
+      const rows = data?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattData ?? [];
+      return rows[0] ?? null;
+    }
+
+    async function fetchRecentBattData(token, regId, limit = 10) {
+      const dates = getRecentDateFilter(90);
+      const payload = buildDbRequest('BATT_DATA', {
+        BattData: [],
+        Filter: {
+          MaxRowCount: 2000,
+          RowOffset: 0,
+          ID: null,
+          NAME: null,
+          RegID: regId,
+          SNo: null,
+          ...dates,
+        },
+      });
+      const data = await apiFetch('api', payload, token, `api/BATT_DATA/${regId}/history`);
+      const rows = data?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattData ?? [];
+      return sortBattDataNewestFirst(rows).slice(0, limit);
+    }
+
+    async function fetchBattState(token, regId) {
+      const payload = buildDbRequest('BATT_STATE', {
+        BattState: [],
+        Filter: {
+          MaxRowCount: 2000,
+          RowOffset: 0,
+          ID: null,
+          NAME: null,
+          RegID: regId,
+          SNo: null,
+        },
+      });
+      const data = await apiFetch('api', payload, token, `api/BATT_STATE/${regId}`);
+      const rows = data?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattState ?? [];
+      return rows[0] ?? null;
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────
+
+    function extractBatteries(devices) {
+      return devices.filter((d) => {
+        const type = (d.ProductTypeName || '').toLowerCase();
+        return type === 'battery' || d.ProductTypeID === 1 || d.Battery != null;
+      }).map((d) => ({
+        regId: d.RegID,
+        sno: d.SNo,
+        name: d.DevName || d.SNo,
+        product: d.ProductName,
+        lastLogin: d.DateLogin,
+        registered: d.ProductStateName === 'Registered',
+      })).filter((b) => b.regId != null)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base', numeric: true }));
+    }
+
+    function mahToAh(mah) {
+      if (mah == null) return '—';
+      return (mah / 1000).toFixed(1);
+    }
+
+    function currentToAmps(ma) {
+      if (ma == null) return 0;
+      return ma / 1000;
+    }
+
+    function getChargePercent(data) {
+      if (!data) return null;
+      if (data.PackCapacityPercent != null) return Math.round(data.PackCapacityPercent);
+      if (data.PackCapacity && data.RemainCapacity != null) {
+        return Math.round((data.RemainCapacity / data.PackCapacity) * 100);
+      }
+      return null;
+    }
+
+    function getChargingStatus(data) {
+      if (!data) return { charging: false, label: 'Unknown', color: 'gray' };
+      const amps = currentToAmps(data.PackCurrent);
+      if (amps > 0.05) return { charging: true, label: 'Charging', color: 'lime' };
+      if (amps < -0.05) return { charging: false, label: 'Discharging', color: 'ocean' };
+      return { charging: false, label: 'Idle', color: 'gray' };
+    }
+
+    function formatTimestamp(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString('en-GB', {
+          day: '2-digit', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+      } catch {
+        return iso;
+      }
+    }
+
+    function timeAgo(iso) {
+      if (!iso) return '';
+      const diff = Date.now() - new Date(iso).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const days = Math.floor(hrs / 24);
+      return `${days}d ago`;
+    }
+
+    function percentColor(pct) {
+      if (pct == null) return 'bg-gray-300';
+      if (pct >= 60) return 'bg-sifly-lime';
+      if (pct >= 30) return 'bg-amber-400';
+      return 'bg-red-500';
+    }
+
+    // ─── Storage ─────────────────────────────────────────────────
+
+    function loadStoredAuth() {
+      const rememberCreds = localStorage.getItem(STORAGE.rememberCredentials) === 'true';
+      const rememberTok = localStorage.getItem(STORAGE.rememberToken) !== 'false';
+
+      if (rememberCreds) {
+        $('#username').value = localStorage.getItem(STORAGE.username) || '';
+        $('#password').value = localStorage.getItem(STORAGE.password) || '';
+        $('#remember-credentials').checked = true;
+      }
+
+      $('#remember-token').checked = rememberTok;
+
+      if (rememberTok) {
+        return getValidStoredToken();
+      }
+      return null;
+    }
+
+    function saveAuth(username, password, token) {
+      localStorage.setItem(STORAGE.username, username);
+
+      if ($('#remember-credentials').checked) {
+        localStorage.setItem(STORAGE.password, password);
+        localStorage.setItem(STORAGE.rememberCredentials, 'true');
+      } else {
+        localStorage.removeItem(STORAGE.password);
+        localStorage.setItem(STORAGE.rememberCredentials, 'false');
+      }
+
+      localStorage.setItem(STORAGE.rememberToken, $('#remember-token').checked ? 'true' : 'false');
+
+      if ($('#remember-token').checked && token) {
+        localStorage.setItem(STORAGE.token, token);
+      } else {
+        localStorage.removeItem(STORAGE.token);
+      }
+    }
+
+    function clearSession() {
+      state.token = null;
+      localStorage.removeItem(STORAGE.token);
+      if (state.refreshTimer) clearInterval(state.refreshTimer);
+      showLogin();
+    }
+
+    // ─── UI ──────────────────────────────────────────────────────
+
+    function showLogin() {
+      $('#login-section').classList.remove('hidden');
+      $('#dashboard-section').classList.add('hidden');
+      $('#header-actions').classList.add('hidden');
+      $('#header-actions').classList.remove('flex');
+    }
+
+    function showDashboard() {
+      $('#login-section').classList.add('hidden');
+      $('#dashboard-section').classList.remove('hidden');
+      $('#header-actions').classList.remove('hidden');
+      $('#header-actions').classList.add('flex');
+      if (isDebugEnabled()) renderDebugMeta();
+    }
+
+    function setLoginLoading(loading) {
+      $('#login-btn').disabled = loading;
+      $('#login-spinner').classList.toggle('hidden', !loading);
+      $('#login-btn-text').textContent = loading ? 'Signing in…' : 'Sign in';
+    }
+
+    function showLoginError(msg) {
+      const el = $('#login-error');
+      if (msg) {
+        el.textContent = msg;
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    function renderSummary(batteries) {
+      const withData = batteries.filter((b) => b.data);
+      const charging = withData.filter((b) => getChargingStatus(b.data).charging).length;
+      const avgPct = withData.length
+        ? Math.round(withData.reduce((s, b) => s + (getChargePercent(b.data) || 0), 0) / withData.length)
+        : 0;
+
+      $('#summary-stats').innerHTML = `
+        <div class="rounded-xl bg-white px-4 py-2 shadow-card">
+          <p class="text-xs text-gray-500">Batteries</p>
+          <p class="text-xl font-bold">${batteries.length}</p>
+        </div>
+        <div class="rounded-xl bg-white px-4 py-2 shadow-card">
+          <p class="text-xs text-gray-500">Charging</p>
+          <p class="text-xl font-bold text-sifly-lime-dark">${charging}</p>
+        </div>
+        <div class="rounded-xl bg-white px-4 py-2 shadow-card">
+          <p class="text-xs text-gray-500">Avg. charge</p>
+          <p class="text-xl font-bold">${withData.length ? avgPct + '%' : '—'}</p>
+        </div>
+      `;
+    }
+
+    function renderBatteryCard(battery) {
+      const { data } = battery;
+      const pct = getChargePercent(data);
+      const status = getChargingStatus(data);
+      const amps = data ? currentToAmps(data.PackCurrent).toFixed(2) : '—';
+      const packCap = data ? mahToAh(data.PackCapacity) : '—';
+      const remainCap = data ? mahToAh(data.RemainCapacity) : '—';
+      const timestamp = data?.DateUTC || battery.lastLogin;
+      const barColor = percentColor(pct);
+
+      const statusClasses = {
+        lime: 'bg-sifly-lime/20 text-sifly-ink',
+        ocean: 'bg-blue-100 text-sifly-ocean',
+        gray: 'bg-gray-100 text-gray-600',
+      };
+
+      return `
+        <article class="flex flex-col overflow-hidden rounded-2xl bg-white shadow-card transition hover:shadow-lg" data-reg-id="${battery.regId}">
+          <div class="border-b border-gray-50 px-5 py-4">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <h3 class="truncate font-semibold">${escapeHtml(battery.name)}</h3>
+                <p class="text-xs text-gray-500">${escapeHtml(battery.sno)} · ${escapeHtml(battery.product || 'PowerCell')}</p>
+              </div>
+              <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses[status.color]}">
+                ${status.charging ? '<span class="charging-dot h-2 w-2 rounded-full bg-sifly-lime"></span>' : ''}
+                ${status.label}
+              </span>
+            </div>
+          </div>
+
+          <div class="flex flex-1 flex-col px-5 py-4">
+            <div class="mb-1 flex items-end justify-between">
+              <span class="text-4xl font-bold tracking-tight">${pct != null ? pct : '—'}<span class="text-lg text-gray-400">${pct != null ? '%' : ''}</span></span>
+              <span class="text-xs text-gray-400">${timeAgo(timestamp)}</span>
+            </div>
+            <div class="mb-4 h-2.5 overflow-hidden rounded-full bg-gray-100">
+              <div class="progress-fill h-full rounded-full ${barColor}" style="width: ${pct ?? 0}%"></div>
+            </div>
+
+            <dl class="mb-4 grid grid-cols-3 gap-2 text-center">
+              <div class="rounded-lg bg-sifly-mist px-2 py-2">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500">Pack</dt>
+                <dd class="text-sm font-semibold">${packCap}<span class="text-xs font-normal text-gray-400"> Ah</span></dd>
+              </div>
+              <div class="rounded-lg bg-sifly-mist px-2 py-2">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500">Remain</dt>
+                <dd class="text-sm font-semibold">${remainCap}<span class="text-xs font-normal text-gray-400"> Ah</span></dd>
+              </div>
+              <div class="rounded-lg bg-sifly-mist px-2 py-2">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500">Current</dt>
+                <dd class="text-sm font-semibold">${amps}<span class="text-xs font-normal text-gray-400"> A</span></dd>
+              </div>
+            </dl>
+
+            <p class="mb-4 text-xs text-gray-500">
+              Last data: <span class="font-medium text-gray-700">${formatTimestamp(timestamp)}</span>
+            </p>
+
+            <button type="button" class="details-btn mt-auto w-full rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 transition hover:border-sifly-ink hover:bg-sifly-ink hover:text-white" data-reg-id="${battery.regId}">
+              View details
+            </button>
+          </div>
+        </article>
+      `;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str ?? '';
+      return div.innerHTML;
+    }
+
+    function renderBatteries(batteries) {
+      const grid = $('#battery-grid');
+      grid.innerHTML = batteries.map(renderBatteryCard).join('');
+
+      $$('.details-btn').forEach((btn) => {
+        btn.addEventListener('click', () => openDetails(Number(btn.dataset.regId)));
+      });
+    }
+
+    const BMS_STATE_SECTIONS = [
+      {
+        title: 'Battery info',
+        fields: [
+          { key: 'SNo', label: 'Serial number' },
+          { key: 'PartnerName', label: 'Partner name' },
+          { key: 'PartnerID', label: 'Partner ID' },
+          { key: 'REGID', label: 'Reg ID' },
+          { key: 'RegID', label: 'Reg ID (alt)' },
+          { key: 'DateRcvUTC', label: 'Date receive (UTC)' },
+          { key: 'DateUTC', label: 'Date (UTC)' },
+        ],
+      },
+      {
+        title: 'Basic settings',
+        fields: [
+          { key: 'ParCellOVP', label: 'Cell overvoltage protection (mV)' },
+          { key: 'ParCellOVR', label: 'Cell overvoltage protection – release voltage (mV)' },
+          { key: 'ParCellOVD', label: 'Cell overvoltage protection – delay (s)' },
+          { key: 'ParCellUVP', label: 'Cell undervoltage protection (mV)' },
+          { key: 'ParCellUVR', label: 'Cell undervoltage protection – release voltage (mV)' },
+          { key: 'ParCellUVD', label: 'Cell undervoltage protection – delay (s)' },
+          { key: 'ParPackOVP', label: 'Battery pack overvoltage protection (mV)' },
+          { key: 'ParPackOVR', label: 'Battery pack overvoltage protection – release voltage (mV)' },
+          { key: 'ParPackOVD', label: 'Battery pack overvoltage protection – delay (s)' },
+          { key: 'ParPackUVP', label: 'Battery pack undervoltage protection (mV)' },
+          { key: 'ParPackUVR', label: 'Battery pack undervoltage protection – release voltage (mV)' },
+          { key: 'ParPackUVD', label: 'Battery pack undervoltage protection – delay (s)' },
+          { key: 'ParChgOTP', label: 'Charge over temperature protection (°C)' },
+          { key: 'ParChgOTR', label: 'Charge over temperature protection – release temp (°C)' },
+          { key: 'ParChgOTD', label: 'Charge over temperature protection – delay (s)' },
+          { key: 'ParChgUTP', label: 'Charge under temperature protection (°C)' },
+          { key: 'ParChgUTR', label: 'Charge under temperature protection – release temp (°C)' },
+          { key: 'ParChgUTD', label: 'Charge under temperature protection – delay (s)' },
+          { key: 'ParDsgOTP', label: 'Discharge over temperature protection (°C)' },
+          { key: 'ParDsgOTR', label: 'Discharge over temperature protection – release temp (°C)' },
+          { key: 'ParDsgOTD', label: 'Discharge over temperature protection – delay (s)' },
+          { key: 'ParDsgUTP', label: 'Discharge under temperature protection (°C)' },
+          { key: 'ParDsgUTR', label: 'Discharge under temperature protection – release temp (°C)' },
+          { key: 'ParDsgUTD', label: 'Discharge under temperature protection – delay (s)' },
+          { key: 'ParChgOCP', label: 'Charge overcurrent protection (mA)' },
+          { key: 'ParChgOCR', label: 'Charge overcurrent protection – release time (s)' },
+          { key: 'ParChgOCD', label: 'Charge overcurrent protection – delay (s)' },
+          { key: 'ParDsgOCP', label: 'Discharge overcurrent protection (mA)' },
+          { key: 'ParDsgOCR', label: 'Discharge overcurrent protection – release time (s)' },
+          { key: 'ParDsgOCD', label: 'Discharge overcurrent protection – delay (s)' },
+        ],
+      },
+      {
+        title: 'Advanced protection',
+        fields: [
+          { key: 'ParDoubleProtection', label: 'Double over current and short circuit protection' },
+          { key: 'ParDsgOC2P', label: 'Discharge overcurrent protection 2 (A)' },
+          { key: 'ParDsgOC2D', label: 'Discharge overcurrent protection 2 – delay (s)' },
+          { key: 'ParSCP', label: 'Short-circuit value (A)' },
+          { key: 'ParSCD', label: 'Short-circuit value – delay (s)' },
+          { key: 'ParSCR', label: 'Short-circuit release time (s)' },
+          { key: 'ParScR', label: 'Short-circuit release time (s, alt)' },
+          { key: 'ParHardCellOVP', label: 'Hard cell over voltage protection value (mV)' },
+          { key: 'ParHardCellOVD', label: 'Hard cell over voltage protection delay (s)' },
+          { key: 'ParHardCellUVP', label: 'Hard cell under voltage protection value (mV)' },
+          { key: 'ParHardCellUVD', label: 'Hard cell under voltage protection delay (s)' },
+        ],
+      },
+      {
+        title: 'Capacity settings',
+        fields: [
+          { key: 'FullCapacity', label: 'Full capacity (mAh)' },
+          { key: 'CycleCapacity', label: 'Cycle capacity (mAh)' },
+          { key: 'ParCellFullVoltage', label: 'Cell full voltage (mV)' },
+          { key: 'ParCellEndVoltage', label: 'Cell end voltage (mV)' },
+          { key: 'ParRateOfDsg', label: 'Rate of discharge (%)' },
+          { key: 'Par80CapacityVolume', label: '80% capacity volume (mV)' },
+          { key: 'Par60CapacityVolume', label: '60% capacity volume (mV)' },
+          { key: 'Par40CapacityVolume', label: '40% capacity volume (mV)' },
+          { key: 'Par20CapacityVolume', label: '20% capacity volume (mV)' },
+          { key: 'ParSwitchTime', label: 'Switch time (s)' },
+          { key: 'ParLEDTime', label: 'LED time (s)' },
+        ],
+      },
+      {
+        title: 'Protected count',
+        fields: [
+          { key: 'CntSC', label: 'Count short circuit' },
+          { key: 'CntChgOC', label: 'Count charge overcurrent' },
+          { key: 'CntDsgOC', label: 'Count discharge overcurrent' },
+          { key: 'CntCellOV', label: 'Count cell overvoltage protection' },
+          { key: 'CntCellUV', label: 'Count cell undervoltage protection' },
+          { key: 'CntChgOT', label: 'Count charge overtemperature protection' },
+          { key: 'CntChgUT', label: 'Count charge under temperature protection' },
+          { key: 'CntDsgOT', label: 'Count discharge overtemperature protection' },
+          { key: 'CntDsgUT', label: 'Count discharge undertemperature protection' },
+          { key: 'CntPackOV', label: 'Count battery pack overvoltage protection' },
+          { key: 'CntPackUV', label: 'Count battery pack undervoltage protection' },
+          { key: 'CntRSTN', label: 'RSTN (reset)' },
+          { key: 'CntHardOC', label: 'Hard OCP (hard over current protection)' },
+          { key: 'CntHardCellOV', label: 'Hard cell OVP (hard cell over voltage protection)' },
+          { key: 'CntHardCellUV', label: 'Hard cell UVP (hard cell under voltage protection)' },
+        ],
+      },
+      {
+        title: 'Balance',
+        fields: [
+          { key: 'ParBalanceStartVoltage', label: 'Balance start voltage (mV)' },
+          { key: 'ParBalanceWindow', label: 'Window (mV)' },
+        ],
+      },
+      {
+        title: 'Flags',
+        fields: [
+          { key: 'ParFunctionFlags', label: 'Functions' },
+          { key: 'ParNTCFlags', label: 'NTC' },
+        ],
+      },
+    ];
+
+    function formatStateValue(key, value) {
+      if (value === null || value === undefined || value === '') return '—';
+      if (key.includes('Date') && typeof value === 'string') return formatTimestamp(value);
+      return String(value);
+    }
+
+    function renderBmsStateSections(stateData, battery) {
+      const skipKeys = new Set();
+      const knownKeys = new Set(BMS_STATE_SECTIONS.flatMap((s) => s.fields.map((f) => f.key)));
+
+      const html = BMS_STATE_SECTIONS.map((section) => {
+        const rows = section.fields
+          .filter(({ key }) => {
+            if (skipKeys.has(key)) return false;
+            if (key === 'RegID' && (stateData.REGID != null || battery?.regId)) return false;
+            if (key === 'ParScR' && stateData.ParSCR != null) return false;
+            return true;
+          })
+          .map(({ key, label }) => {
+            skipKeys.add(key);
+            let value = stateData[key];
+            if (key === 'REGID' && (value == null) && battery?.regId) value = battery.regId;
+            if (key === 'PartnerName' && !value && stateData.PartnerID) value = `ID ${stateData.PartnerID}`;
+            return `
+              <div class="bms-row flex items-start justify-between gap-6 border-b border-gray-100 px-5 py-3.5 last:border-b-0">
+                <span class="min-w-0 flex-1 pr-4 text-sm leading-relaxed text-gray-500">${escapeHtml(label)}</span>
+                <span class="shrink-0 pl-2 text-right text-sm font-medium leading-relaxed text-sifly-ink">${escapeHtml(formatStateValue(key, value))}</span>
+              </div>
+            `;
+          })
+          .join('');
+
+        return `
+          <div class="mb-5">
+            <h4 class="mb-2 px-1 text-sm font-semibold uppercase tracking-wide text-gray-500">${escapeHtml(section.title)}</h4>
+            <div class="overflow-hidden rounded-xl border border-gray-100 bg-white">${rows}</div>
+          </div>
+        `;
+      }).join('');
+
+      const extraKeys = Object.keys(stateData).filter((k) => !knownKeys.has(k)).sort();
+      if (!extraKeys.length) return html;
+
+      const extraRows = extraKeys.map((key) => `
+        <div class="bms-row flex items-start justify-between gap-6 border-b border-gray-100 px-5 py-3.5 last:border-b-0">
+          <span class="min-w-0 flex-1 pr-4 text-sm leading-relaxed text-gray-500">${escapeHtml(key)}</span>
+          <span class="shrink-0 pl-2 text-right text-sm font-medium leading-relaxed text-sifly-ink">${escapeHtml(formatStateValue(key, stateData[key]))}</span>
+        </div>
+      `).join('');
+
+      return html + `
+        <div class="mb-5">
+          <h4 class="mb-2 px-1 text-sm font-semibold uppercase tracking-wide text-gray-500">Other fields</h4>
+          <div class="overflow-hidden rounded-xl border border-gray-100 bg-white">${extraRows}</div>
+        </div>
+      `;
+    }
+
+    function renderRecentMeasurements(history) {
+      if (!history?.length) {
+        return `
+          <div class="mt-6">
+            <h4 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Last 10 measurements</h4>
+            <p class="text-sm text-gray-500">No recent measurements available.</p>
+          </div>
+        `;
+      }
+
+      const rows = history.map((row) => {
+        const pct = getChargePercent(row);
+        const status = getChargingStatus(row);
+        const voltage = row.PackVoltage != null ? `${(row.PackVoltage / 1000).toFixed(1)} V` : '—';
+        const current = `${currentToAmps(row.PackCurrent).toFixed(2)} A`;
+        const temp = `${row.PackT1 ?? '—'}°C`;
+        return `
+          <tr class="border-t border-gray-100">
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">${formatTimestamp(row.DateUTC)}</td>
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm font-medium text-sifly-ink">${pct ?? '—'}%</td>
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">${status.label}</td>
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">${current}</td>
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">${voltage}</td>
+            <td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">${temp}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="mt-6">
+          <h4 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Last 10 measurements</h4>
+          <div class="overflow-x-auto rounded-xl border border-gray-100">
+            <table class="min-w-full text-left">
+              <thead class="bg-sifly-mist">
+                <tr>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Time</th>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Charge</th>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Status</th>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Current</th>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Voltage</th>
+                  <th class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Temp</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white">${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDetailsModal(battery, stateData, dataRecord, history = []) {
+      $('#modal-title').textContent = battery.name;
+      $('#modal-subtitle').textContent = `${battery.sno} · ${battery.product || 'PowerCell'} · RegID ${battery.regId}`;
+
+      const sections = [];
+
+      if (dataRecord) {
+        const pct = getChargePercent(dataRecord);
+        const status = getChargingStatus(dataRecord);
+        sections.push(`
+          <div class="mb-6 rounded-xl bg-sifly-mist p-5">
+            <h4 class="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">Latest telemetry</h4>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div class="space-y-1"><span class="text-xs text-gray-500">Charge level</span><p class="font-semibold">${pct ?? '—'}%</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Status</span><p class="font-semibold">${status.label}</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Pack capacity</span><p class="font-semibold">${mahToAh(dataRecord.PackCapacity)} Ah</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Remain capacity</span><p class="font-semibold">${mahToAh(dataRecord.RemainCapacity)} Ah</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Pack current</span><p class="font-semibold">${currentToAmps(dataRecord.PackCurrent).toFixed(2)} A</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Pack voltage</span><p class="font-semibold">${dataRecord.PackVoltage != null ? (dataRecord.PackVoltage / 1000).toFixed(1) + ' V' : '—'}</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Temperature</span><p class="font-semibold">${dataRecord.PackT1 ?? '—'}°C / ${dataRecord.PackT2 ?? '—'}°C</p></div>
+              <div class="space-y-1"><span class="text-xs text-gray-500">Timestamp</span><p class="font-semibold">${formatTimestamp(dataRecord.DateUTC)}</p></div>
+            </div>
+          </div>
+        `);
+      }
+
+      if (stateData) {
+        sections.push(`
+          <div>
+            <h4 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">BMS state</h4>
+            ${renderBmsStateSections(stateData, battery)}
+          </div>
+        `);
+      }
+
+      if (!sections.length) {
+        sections.push('<p class="text-gray-500">No detail data available.</p>');
+      }
+
+      sections.push(renderRecentMeasurements(history));
+
+      $('#modal-body').innerHTML = sections.join('');
+    }
+
+    function openModal() {
+      const modal = $('#details-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      const modal = $('#details-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    function buildDemoHistory(base) {
+      if (!base) return [];
+      const now = Date.now();
+      return Array.from({ length: 10 }, (_, i) => {
+        const ageMin = i * 15;
+        const pct = Math.max(20, Math.min(100, (base.PackCapacityPercent ?? 60) - i * 2));
+        const current = i === 0 ? (base.PackCurrent ?? 0) : (i % 3 === 0 ? 4200 : i % 3 === 1 ? -1800 : 0);
+        return {
+          ...base,
+          DateUTC: new Date(now - ageMin * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, ''),
+          PackCapacityPercent: pct,
+          PackCurrent: current,
+          PackVoltage: (base.PackVoltage ?? 53760) - i * 40,
+          PackT1: (base.PackT1 ?? 21) + (i % 3),
+          PackT2: (base.PackT2 ?? 20) + (i % 2),
+        };
+      });
+    }
+
+    async function openDetails(regId) {
+      const battery = state.batteries.find((b) => b.regId === regId);
+      if (!battery) return;
+
+      openModal();
+      $('#modal-body').innerHTML = '<div class="flex justify-center py-8"><svg class="h-6 w-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>';
+
+      try {
+        let stateData = null;
+        let history = [];
+        if (state.demo) {
+          const res = await fetch('battery_state_example.json');
+          const json = await res.json();
+          stateData = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattState?.[0] ?? null;
+          history = buildDemoHistory(battery.data);
+        } else {
+          const [stateResult, historyResult] = await Promise.allSettled([
+            fetchBattState(state.token, regId),
+            fetchRecentBattData(state.token, regId, 10),
+          ]);
+          if (stateResult.status === 'fulfilled') stateData = stateResult.value;
+          if (historyResult.status === 'fulfilled') history = historyResult.value;
+          else if (!battery.data && stateResult.status === 'rejected') throw stateResult.reason;
+        }
+        renderDetailsModal(battery, stateData, battery.data, history);
+      } catch (err) {
+        $('#modal-body').innerHTML = `<p class="text-red-600">Failed to load details: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    // ─── Data loading ────────────────────────────────────────────
+
+    async function loadBatteryData() {
+      $('#loading-state').classList.remove('hidden');
+      $('#empty-state').classList.add('hidden');
+      $('#battery-grid').innerHTML = '';
+
+      try {
+        let devices;
+        if (state.demo) {
+          const res = await fetch('devices_example.json');
+          const json = await res.json();
+          devices = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.Device ?? [];
+        } else {
+          devices = await fetchDevices(state.token);
+        }
+
+        const batteries = extractBatteries(devices);
+
+        if (!batteries.length) {
+          $('#loading-state').classList.add('hidden');
+          $('#empty-state').classList.remove('hidden');
+          if (isDebugEnabled()) {
+            $('#empty-state-debug').classList.remove('hidden');
+            $('#empty-state-debug').textContent = `Debug: ${state.lastDeviceCount} total devices returned, 0 matched as batteries. Check debug panel below.`;
+          } else {
+            $('#empty-state-debug').classList.add('hidden');
+          }
+          return;
+        }
+
+        if (state.demo) {
+          const res = await fetch('batt_data_example.json');
+          const json = await res.json();
+          const sampleData = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattData?.[0] ?? null;
+          batteries.forEach((b, i) => {
+            b.data = i === 2 ? sampleData : sampleData ? { ...sampleData, PackCapacityPercent: [45, 78, 61, 92][i] ?? 50, PackCurrent: i === 1 ? 5200 : 0 } : null;
+          });
+        } else {
+          const results = await Promise.allSettled(
+            batteries.map((b) => fetchLatestBattData(state.token, b.regId))
+          );
+          batteries.forEach((b, i) => {
+            b.data = results[i].status === 'fulfilled' ? results[i].value : null;
+          });
+        }
+
+        state.batteries = batteries;
+        $('#loading-state').classList.add('hidden');
+        renderSummary(batteries);
+        renderBatteries(batteries);
+
+        const subtitle = state.demo ? 'Demo mode — sample data' : `Updated ${new Date().toLocaleTimeString('en-GB')}`;
+        $('#dashboard-subtitle').textContent = subtitle;
+      } catch (err) {
+        $('#loading-state').classList.add('hidden');
+        if (isAuthError(err.message)) {
+          clearSession();
+          showLoginError('Session expired. Please sign in again.');
+        } else {
+          $('#battery-grid').innerHTML = `<div class="col-span-full rounded-2xl bg-red-50 p-6 text-red-700 sm:col-span-2 lg:col-span-3">${escapeHtml(err.message)}</div>`;
+        }
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      showLoginError('');
+      setLoginLoading(true);
+
+      const username = $('#username').value.trim();
+      const password = $('#password').value;
+      state.demo = $('#demo-mode').checked;
+
+      try {
+        if (state.demo) {
+          state.token = 'demo';
+          saveAuth(username, password, null);
+        } else {
+          localStorage.removeItem(STORAGE.token);
+          state.token = null;
+          const result = await login(username, password);
+          const token = result?.token;
+          if (!token) throw new Error('No token received from server');
+          state.token = token;
+          saveAuth(username, password, token);
+        }
+
+        showDashboard();
+        await loadBatteryData();
+
+        if (!state.demo && !state.refreshTimer) {
+          state.refreshTimer = setInterval(loadBatteryData, 5 * 60 * 1000);
+        }
+      } catch (err) {
+        if (isAuthError(err.message)) {
+          clearSession();
+          showLoginError('Session expired. Please sign in again.');
+        } else {
+          showLoginError(err.message || 'Login failed. Check your credentials.');
+        }
+      } finally {
+        setLoginLoading(false);
+      }
+    }
+
+    async function tryAutoLogin() {
+      if (new URLSearchParams(location.search).has('demo')) {
+        $('#demo-mode').checked = true;
+      }
+
+      const token = loadStoredAuth();
+      if (token && localStorage.getItem(STORAGE.rememberToken) !== 'false') {
+        state.token = token;
+        state.demo = false;
+        showDashboard();
+        try {
+          await loadBatteryData();
+          state.refreshTimer = setInterval(loadBatteryData, 5 * 60 * 1000);
+          return;
+        } catch {
+          clearSession();
+          showLoginError('Session expired. Please sign in again.');
+        }
+      }
+
+      if ($('#demo-mode').checked) return;
+      showLogin();
+    }
+
+    // ─── Events ────────────────────────────────────────────────────
+
+    $('#toggle-password').addEventListener('click', () => {
+      const input = $('#password');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      $('#eye-icon').classList.toggle('hidden', show);
+      $('#eye-off-icon').classList.toggle('hidden', !show);
+      $('#toggle-password').setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      $('#toggle-password').setAttribute('aria-pressed', show ? 'true' : 'false');
+    });
+
+    $('#debug-mode').addEventListener('change', (e) => setDebugEnabled(e.target.checked));
+    $('#debug-toggle-btn').addEventListener('click', () => setDebugEnabled(!isDebugEnabled()));
+    $('#debug-close').addEventListener('click', () => setDebugEnabled(false));
+    $('#debug-clear').addEventListener('click', () => { state.debugLog = []; renderDebugLog(); });
+    $('#debug-copy').addEventListener('click', copyDebugLog);
+    $('#debug-test-proxy').addEventListener('click', debugTestProxy);
+    $('#debug-test-dev').addEventListener('click', debugTestDev);
+    $('#debug-test-auth').addEventListener('click', debugTestAuth);
+    $('#debug-minimize').addEventListener('click', () => {
+      state.debugMinimized = !state.debugMinimized;
+      $('#debug-content').classList.toggle('hidden', state.debugMinimized);
+      $('#debug-meta').classList.toggle('hidden', state.debugMinimized);
+      document.body.classList.toggle('debug-minimized', state.debugMinimized);
+      $('#debug-minimize').textContent = state.debugMinimized ? 'Expand' : 'Minimize';
+    });
+
+    if (localStorage.getItem(STORAGE.debugMode) === 'true' || new URLSearchParams(location.search).has('debug')) {
+      setDebugEnabled(true);
+    }
+
+    $('#login-form').addEventListener('submit', handleLogin);
+    $('#logout-btn').addEventListener('click', clearSession);
+    $('#refresh-btn').addEventListener('click', async () => {
+      const icon = $('#refresh-icon');
+      icon.classList.add('animate-spin');
+      await loadBatteryData();
+      icon.classList.remove('animate-spin');
+    });
+    $('#modal-close').addEventListener('click', closeModal);
+    $('#details-modal').addEventListener('click', (e) => {
+      if (e.target === $('#details-modal')) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    tryAutoLogin();
+  </script>
+</body>
+</html>
