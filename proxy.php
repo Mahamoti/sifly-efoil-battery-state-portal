@@ -16,11 +16,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $endpoint = $_GET['endpoint'] ?? 'api';
-$debug = isset($_GET['debug']) && $_GET['debug'] === '1';
 
-if (!in_array($endpoint, ['auth', 'api', 'ping'], true)) {
+if (!in_array($endpoint, ['auth', 'api'], true)) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid endpoint. Use auth, api, or ping.']);
+    echo json_encode(['error' => 'Invalid endpoint. Use auth or api.']);
     exit;
 }
 
@@ -65,39 +64,6 @@ function readAuthorizationHeader(): array
     }
 
     return ['value' => '', 'source' => 'none'];
-}
-
-function maskAuth(string $auth): string
-{
-    if ($auth === '') {
-        return '(none)';
-    }
-    if (preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) {
-        $token = $m[1];
-        if (strlen($token) <= 24) {
-            return 'Bearer ***';
-        }
-        return 'Bearer ' . substr($token, 0, 16) . '…' . substr($token, -12);
-    }
-    return '***';
-}
-
-// Debug/ping endpoint — check if Authorization reaches PHP
-if ($endpoint === 'ping') {
-    $auth = readAuthorizationHeader();
-    echo json_encode([
-        'ok' => true,
-        'php' => PHP_VERSION,
-        'sapi' => PHP_SAPI,
-        'server' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
-        'authReceived' => $auth['value'] !== '',
-        'authSource' => $auth['source'],
-        'authMasked' => maskAuth($auth['value']),
-        'hint' => $auth['value'] === ''
-            ? 'Authorization header not visible to PHP. Upload .htaccess or use X-Sifly-Authorization header.'
-            : 'Authorization header is reaching PHP correctly.',
-    ], JSON_PRETTY_PRINT);
-    exit;
 }
 
 $url = 'https://my.sifly.global/' . $endpoint;
@@ -147,21 +113,6 @@ curl_close($ch);
 if ($errno) {
     http_response_code(502);
     echo json_encode(['error' => 'Upstream request failed', 'detail' => $error]);
-    exit;
-}
-
-if ($debug) {
-    $decoded = json_decode((string) $response, true);
-    echo json_encode([
-        'proxy' => [
-            'authReceived' => $authHeader !== '',
-            'authSource' => $authSource,
-            'authMasked' => maskAuth($authHeader),
-            'upstreamStatus' => $status,
-            'upstreamUrl' => $url,
-        ],
-        'upstreamRaw' => $decoded ?? $response,
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
