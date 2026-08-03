@@ -1,49 +1,49 @@
 # SiFly Battery Monitor
 
-Een klein, praktisch portaal om snel de status van je SiFly PowerCells te zien — zonder eerst de app te openen.
+A small, practical portal to check the status of your SiFly PowerCells — without opening the full app first.
 
-## Waarom dit bestaat
+## Why this exists
 
-Wie met meerdere PowerCells werkt, wil vooral één ding weten: **hoe vol zitten ze?** Niet omdat je ze altijd tot 100% moet laden — juist niet — maar omdat je in één oogopslag wilt zien welke batterijen klaar zijn voor de volgende rit, en welke nog even mogen wachten.
+If you work with multiple PowerCells, you mainly want one answer: **how full are they?** Not because they should always be charged to 100% — often they shouldn’t — but because you want to see at a glance which batteries are ready for the next session, and which can wait a bit longer.
 
-De officiële MySiFly-app kan dat natuurlijk ook. Maar soms is sneller beter: even de status checken vanaf je telefoon, via een bladwijzer of snelkoppeling op je homescreen. Geen app starten, geen zoeken. Gewoon openen, kijken, klaar.
+The official MySiFly app can do that too. Sometimes faster is better: a quick status check from your phone, via a bookmark or home-screen shortcut. No app to launch, no digging around. Open, look, done.
 
-Dat is precies wat dit portaal doet.
+That’s exactly what this portal is for.
 
-## Inloggen
+## Sign in
 
-Log in met je bestaande MySiFly-account. Daarna zie je meteen je batterijen — live, via dezelfde bron als de officiële omgeving.
+Sign in with your existing MySiFly account. You’ll then see your batteries live, from the same source as the official environment.
 
-![Inlogscherm van de SiFly Battery Monitor](docs/images/inlogscherm.png)
+![SiFly Battery Monitor sign-in screen](docs/images/inlogscherm.png)
 
-## Overzicht in één oogopslag
+## Status at a glance
 
-Na het inloggen krijg je een overzicht van al je batterijen: laadniveau, status (laden, ontladen of idle), capaciteit en wanneer de laatste meting binnenkwam. Zo zie je in seconden of een pack op 80% staat — vaak precies waar je hem wilt hebben — of toch even bijgeladen moet worden.
+After signing in you get an overview of all your batteries: charge level, status (charging, discharging, or idle), capacity, and when the last reading came in. In seconds you can see whether a pack is sitting at 80% — often exactly where you want it — or needs a top-up.
 
-![Dashboard met batterijstatus en laadpercentages](docs/images/dashboard-overzicht.png)
+![Dashboard with battery status and charge percentages](docs/images/dashboard-overzicht.png)
 
-Per batterij kun je details openen: actuele telemetry, BMS-status en de laatste metingen. Handig als je even dieper wilt kijken, zonder de rest van je workflow te verstoren.
+For each battery you can open details: live telemetry, BMS state, and recent measurements. Useful when you want a closer look without disrupting the rest of your workflow.
 
-## Wat het wél is (en wat niet)
+## What it is (and isn’t)
 
-- **Wel:** een lichtgewicht statusportaal op basis van je MySiFly-login
-- **Wel:** bedoeld om snel te openen op desktop of mobiel
-- **Niet:** een vervanging van de volledige SiFly-app of beheeromgeving
+- **Is:** a lightweight status portal using your MySiFly login
+- **Is:** meant to open quickly on desktop or mobile
+- **Isn’t:** a replacement for the full SiFly app or management environment
 
-## Technisch
+## Technical
 
-Eenvoudige setup: statische frontend (`index.html`) met een PHP-proxy naar de MySiFly API.
+Simple setup: a static frontend (`index.html`) with a PHP proxy to the MySiFly API.
 
-| Bestand | Rol |
+| File | Role |
 |---|---|
-| `index.html` | UI + API-client |
-| `proxy.php` | Auth/API-proxy naar `my.sifly.global` |
-| `.htaccess` | Authorization-header doorgeven aan PHP |
+| `index.html` | UI + API client |
+| `proxy.php` | Auth/API proxy to `my.sifly.global` |
+| `.htaccess` | Pass Authorization header through to PHP |
 
-### Lokaal draaien
+### Running locally
 
-Zet de map op een PHP-webserver (Apache/Plesk of vergelijkbaar) en open de site in je browser. Zorg dat `proxy.php` requests mag doen naar `my.sifly.global`.
+Host the folder on a PHP web server (Apache/Plesk or similar) and open the site in your browser. Make sure `proxy.php` can reach `my.sifly.global`.
 
-## Licentie / gebruik
+## License / use
 
-Persoonlijk hulpmiddel rondom SiFly PowerCells. Niet gelieerd aan SiFly; gebruikt de MySiFly-API voor eigen statusoverzicht.
+Personal helper around SiFly PowerCells. Not affiliated with SiFly; uses the MySiFly API for your own status overview.
