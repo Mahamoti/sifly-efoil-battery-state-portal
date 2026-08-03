@@ -10,6 +10,12 @@ The official MySiFly app can do that too. Sometimes faster is better: a quick st
 
 That’s exactly what this portal is for.
 
+## Live demo
+
+Try it here: [sifly.codedivers.nl](https://sifly.codedivers.nl)
+
+Sign in with your **MySiFly account** to see your own PowerCells.
+
 ## Sign in
 
 Sign in with your existing MySiFly account. You’ll then see your batteries live, from the same source as the official environment.
