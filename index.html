@@ -122,10 +122,6 @@
             <span id="login-btn-text">Sign in</span>
             <svg id="login-spinner" class="hidden h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
           </button>
-          <label class="flex cursor-pointer items-center justify-center gap-2 text-xs text-gray-500">
-            <input id="demo-mode" type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300" />
-            Demo mode (offline sample data)
-          </label>
         </form>
       </div>
     </section>
@@ -179,7 +175,6 @@
 
     const state = {
       token: null,
-      demo: false,
       batteries: [],
       refreshTimer: null,
     };
@@ -198,6 +193,18 @@
       return msg.includes('invalid_token')
         || msg.includes('unauthorized')
         || msg.includes('authenticating user');
+    }
+
+    function formatLoginError(message) {
+      const msg = (message || '').trim();
+      const lower = msg.toLowerCase();
+      if (!msg || lower === 'unauthorized') {
+        return 'Invalid username or password.';
+      }
+      if (lower.includes('invalid_token') || lower.includes('authenticating user')) {
+        return 'Authentication failed. Please try signing in again.';
+      }
+      return msg;
     }
 
     function decodeJwtPayload(token) {
@@ -219,7 +226,7 @@
 
     function getValidStoredToken() {
       const token = localStorage.getItem(STORAGE.token);
-      if (!token || token === 'demo') return null;
+      if (!token) return null;
       if (isTokenExpired(token)) {
         localStorage.removeItem(STORAGE.token);
         return null;
@@ -935,25 +942,6 @@
       document.body.style.overflow = '';
     }
 
-    function buildDemoHistory(base) {
-      if (!base) return [];
-      const now = Date.now();
-      return Array.from({ length: 10 }, (_, i) => {
-        const ageMin = i * 15;
-        const pct = Math.max(20, Math.min(100, (base.PackCapacityPercent ?? 60) - i * 2));
-        const current = i === 0 ? (base.PackCurrent ?? 0) : (i % 3 === 0 ? 4200 : i % 3 === 1 ? -1800 : 0);
-        return {
-          ...base,
-          DateUTC: new Date(now - ageMin * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, ''),
-          PackCapacityPercent: pct,
-          PackCurrent: current,
-          PackVoltage: (base.PackVoltage ?? 53760) - i * 40,
-          PackT1: (base.PackT1 ?? 21) + (i % 3),
-          PackT2: (base.PackT2 ?? 20) + (i % 2),
-        };
-      });
-    }
-
     async function openDetails(regId) {
       const battery = state.batteries.find((b) => b.regId === regId);
       if (!battery) return;
@@ -964,20 +952,13 @@
       try {
         let stateData = null;
         let history = [];
-        if (state.demo) {
-          const res = await fetch('battery_state_example.json');
-          const json = await res.json();
-          stateData = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattState?.[0] ?? null;
-          history = buildDemoHistory(battery.data);
-        } else {
-          const [stateResult, historyResult] = await Promise.allSettled([
-            fetchBattState(state.token, regId),
-            fetchRecentBattData(state.token, regId, 10),
-          ]);
-          if (stateResult.status === 'fulfilled') stateData = stateResult.value;
-          if (historyResult.status === 'fulfilled') history = historyResult.value;
-          else if (!battery.data && stateResult.status === 'rejected') throw stateResult.reason;
-        }
+        const [stateResult, historyResult] = await Promise.allSettled([
+          fetchBattState(state.token, regId),
+          fetchRecentBattData(state.token, regId, 10),
+        ]);
+        if (stateResult.status === 'fulfilled') stateData = stateResult.value;
+        if (historyResult.status === 'fulfilled') history = historyResult.value;
+        else if (!battery.data && stateResult.status === 'rejected') throw stateResult.reason;
         renderDetailsModal(battery, stateData, battery.data, history);
       } catch (err) {
         $('#modal-body').innerHTML = `<p class="text-red-600">Failed to load details: ${escapeHtml(err.message)}</p>`;
@@ -986,21 +967,13 @@
 
     // ─── Data loading ────────────────────────────────────────────
 
-    async function loadBatteryData() {
+    async function loadBatteryData({ rethrowAuth = false } = {}) {
       $('#loading-state').classList.remove('hidden');
       $('#empty-state').classList.add('hidden');
       $('#battery-grid').innerHTML = '';
 
       try {
-        let devices;
-        if (state.demo) {
-          const res = await fetch('devices_example.json');
-          const json = await res.json();
-          devices = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.Device ?? [];
-        } else {
-          devices = await fetchDevices(state.token);
-        }
-
+        const devices = await fetchDevices(state.token);
         const batteries = extractBatteries(devices);
 
         if (!batteries.length) {
@@ -1009,37 +982,28 @@
           return;
         }
 
-        if (state.demo) {
-          const res = await fetch('batt_data_example.json');
-          const json = await res.json();
-          const sampleData = json?.WebSrvCmd?.Cmd?.DBRequest?.[0]?.ResultData?.BattData?.[0] ?? null;
-          batteries.forEach((b, i) => {
-            b.data = i === 2 ? sampleData : sampleData ? { ...sampleData, PackCapacityPercent: [45, 78, 61, 92][i] ?? 50, PackCurrent: i === 1 ? 5200 : 0 } : null;
-          });
-        } else {
-          const results = await Promise.allSettled(
-            batteries.map((b) => fetchLatestBattData(state.token, b.regId))
-          );
-          batteries.forEach((b, i) => {
-            b.data = results[i].status === 'fulfilled' ? results[i].value : null;
-          });
-        }
+        const results = await Promise.allSettled(
+          batteries.map((b) => fetchLatestBattData(state.token, b.regId))
+        );
+        batteries.forEach((b, i) => {
+          b.data = results[i].status === 'fulfilled' ? results[i].value : null;
+        });
 
         state.batteries = batteries;
         $('#loading-state').classList.add('hidden');
         renderSummary(batteries);
         renderBatteries(batteries);
 
-        const subtitle = state.demo ? 'Demo mode — sample data' : `Updated ${new Date().toLocaleTimeString('en-GB')}`;
-        $('#dashboard-subtitle').textContent = subtitle;
+        $('#dashboard-subtitle').textContent = `Updated ${new Date().toLocaleTimeString('en-GB')}`;
       } catch (err) {
         $('#loading-state').classList.add('hidden');
         if (isAuthError(err.message)) {
+          if (rethrowAuth) throw err;
           clearSession();
-          showLoginError('Session expired. Please sign in again.');
-        } else {
-          $('#battery-grid').innerHTML = `<div class="col-span-full rounded-2xl bg-red-50 p-6 text-red-700 sm:col-span-2 lg:col-span-3">${escapeHtml(err.message)}</div>`;
+          showLoginError('Your session expired. Please sign in again.');
+          return;
         }
+        $('#battery-grid').innerHTML = `<div class="col-span-full rounded-2xl bg-red-50 p-6 text-red-700 sm:col-span-2 lg:col-span-3">${escapeHtml(err.message)}</div>`;
       }
     }
 
@@ -1050,61 +1014,53 @@
 
       const username = $('#username').value.trim();
       const password = $('#password').value;
-      state.demo = $('#demo-mode').checked;
 
       try {
-        if (state.demo) {
-          state.token = 'demo';
-          saveAuth(username, password, null);
-        } else {
-          localStorage.removeItem(STORAGE.token);
-          state.token = null;
-          const result = await login(username, password);
-          const token = result?.token;
-          if (!token) throw new Error('No token received from server');
-          state.token = token;
-          saveAuth(username, password, token);
-        }
+        localStorage.removeItem(STORAGE.token);
+        state.token = null;
+        const result = await login(username, password);
+        const token = result?.token;
+        if (!token) throw new Error('No token received from server');
+        state.token = token;
+        saveAuth(username, password, token);
 
         showDashboard();
-        await loadBatteryData();
+        await loadBatteryData({ rethrowAuth: true });
 
-        if (!state.demo && !state.refreshTimer) {
+        if (!state.refreshTimer) {
           state.refreshTimer = setInterval(loadBatteryData, 5 * 60 * 1000);
         }
       } catch (err) {
-        if (isAuthError(err.message)) {
-          clearSession();
-          showLoginError('Session expired. Please sign in again.');
-        } else {
-          showLoginError(err.message || 'Login failed. Check your credentials.');
-        }
+        clearSession();
+        showLoginError(formatLoginError(err.message));
       } finally {
         setLoginLoading(false);
       }
     }
 
     async function tryAutoLogin() {
-      if (new URLSearchParams(location.search).has('demo')) {
-        $('#demo-mode').checked = true;
-      }
+      // Clean up removed preference keys from older versions
+      localStorage.removeItem('sifly_remember_token');
+      localStorage.removeItem('sifly_debug_mode');
 
       const token = loadStoredAuth();
       if (token) {
         state.token = token;
-        state.demo = false;
         showDashboard();
         try {
-          await loadBatteryData();
+          await loadBatteryData({ rethrowAuth: true });
           state.refreshTimer = setInterval(loadBatteryData, 5 * 60 * 1000);
           return;
-        } catch {
+        } catch (err) {
           clearSession();
-          showLoginError('Session expired. Please sign in again.');
+          if (isAuthError(err.message)) {
+            showLoginError('Your previous session expired. Please sign in again.');
+          } else {
+            showLoginError(formatLoginError(err.message));
+          }
         }
       }
 
-      if ($('#demo-mode').checked) return;
       showLogin();
     }
 
